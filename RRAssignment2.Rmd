@@ -1,0 +1,200 @@
+---
+title: "Exploring The NOOA Storm Database"
+author: "Bodil Biering"
+date: "17 Nov 2014"
+output:
+  html_document:
+    keep_md: yes
+    theme: spacelab
+---
+
+
+***
+#### *Synopsis* 
+**Questions:**
+In this data analysis we investigate the following questions:
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+2. Across the United States, which types of events have the greatest economic consequences?  
+
+The analysis demonstrates that while tornados are the most harmful events with respect to population health, floods have the greatest economic consequences.
+For the flood and tornado events we report the impact on population health and economy over time.
+
+***
+## Introduction
+
+*Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.*
+
+*This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.*
+
+*The events in the database start in the year 1950 and end in November 2011. In the earlier years of the database there are generally fewer events recorded, most likely due to a lack of good records. More recent years should be considered more complete.*
+
+## Data Processing
+
+The data is processed as follows:
+
+* Read the csv.bz2 file from the data folder.
+* Tidy the data by transforming alphabetical characters signifying the magnitude of the number in the damage column to a number, and then multiply by this number to get the damage estimates.
+Note, that we do not take into acount any additional presision, since we are interested in the "large picture".
+From the documentation of the NOOA storm database:
+
+> *Estimates can be obtained from emergency managers, U.S. Geological Survey, U.S. Army Corps of Engineers, power utility companies, and newspaper articles. If the values provided are rough estimates, then this should be stated as such in the narrative. Estimates should be rounded to three significant digits, followed by an alphabetical character signifying the magnitude of the number, i.e., 1.55B for $1,550,000,000. Alphabetical characters used to signify magnitude include “K” for thousands, “M” for millions, and “B” for billions. If additional precision is available, it may be provided in the narrative part of the entry. When damage is due to more than one element of the storm, indicate, when possible, the amount of damage caused by each element. If the dollar amount of damage is unknown, or not available, check the “no information available” box.*
+
+* Convert the estimates to million dollars.
+
+
+
+* We use the following libraries:
+```{r libraries, warning=FALSE, message=FALSE}
+#load libraries
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+require(gridExtra)
+require(knitr)
+```
+
+
+```{r dataload, cache=TRUE}
+#load data
+data = read.csv("./data/repdata-data-StormData.csv.bz2", sep = ",", stringsAsFactors=TRUE)
+
+# function for translating letters to numbers
+f <- function(c) {
+    if(c == "B" || c == "b") { return(1e+09) } 
+    else if(c == "M" || c == "m") { return(1e+06) } 
+    else if(c == "K" || c == "k") { return(1000) }
+    else if(c == "H" || c == "h") { return(100) } 
+    else return(1) }
+
+# make total in mill dollars
+tidydata <- mutate(data, 
+                   propDmgFact = sapply(PROPDMGEXP, f), 
+                   cropDmgFact = sapply(CROPDMGEXP, f), 
+                   totalDmg = (PROPDMG * propDmgFact + CROPDMG * cropDmgFact)/1e+06)
+# convert date format
+tidydata$BGN_DATE <- mdy_hms(tidydata$BGN_DATE)
+```
+
+
+
+
+* We group the data by event type in a new frame ```by_evtype``` in order to calculate the sum and mean for each event type.
+```{r, warning=FALSE, message=FALSE}
+# group by event type and calculate numbers by event type
+by_evtype <- group_by(tidydata, EVTYPE) %>% 
+    summarise(fatalities = sum(FATALITIES), meanFatal = mean(FATALITIES), 
+              injuries = sum(INJURIES), meanInjuries = mean(INJURIES), 
+              totalDamage = sum(totalDmg), meanDmg = mean(totalDmg), 
+              sumHealth = sum(FATALITIES) + sum(INJURIES), 
+              meanSumHealth = mean(FATALITIES + INJURIES), count = length(EVTYPE))
+
+```
+
+* Likewise we group data by year in a new frame ```by_year``` in order to calculate the sum and mean for each year for specific event types **flood** and **tornado**.
+```{r by_year}
+
+by_year <- group_by(tidydata, EVTYPE, year =year(BGN_DATE)) %>% 
+    filter(EVTYPE == "TORNADO" | EVTYPE =="FLOOD") %>%
+    summarise(fatalities = sum(FATALITIES), meanFatal = mean(FATALITIES), 
+              injuries = sum(INJURIES), meanInjuries = mean(INJURIES), 
+              totalDamage = sum(totalDmg), meanDmg = mean(totalDmg), 
+              sumHealth = sum(FATALITIES) + sum(INJURIES), 
+              meanSumHealth = mean(FATALITIES + INJURIES), count = length(EVTYPE))
+    
+```
+
+
+
+
+
+## Results
+
+### Total Impact By Event Types
+```{r plots,  fig.width = 10}
+
+# plots:
+ plot1 <- qplot(EVTYPE, totalDamage, data = arrange(by_evtype, desc(totalDamage))[1:10,]) + geom_bar(stat = "identity", fill = "blue", width=0.3)  + ylab("Total property and crop damage (mill. $)") + xlab("Event type") + theme( text = element_text(size = 10), axis.text.y = element_text(size=5)) + coord_flip()
+
+plot2 <- qplot(EVTYPE, fatalities, data = arrange(by_evtype, desc(fatalities))[1:10,]) + geom_bar(stat = "identity", fill = "red", width=0.3) + xlab("Event type") + ylab("Total number of fatalities by event type") + theme(text = element_text(size = 10), axis.text.y = element_text(size=5)) + coord_flip()
+
+plot3 <- qplot(EVTYPE, injuries, data = arrange(by_evtype, desc(injuries))[1:10,]) + geom_bar(stat = "identity", fill = "yellow", width=0.3) + xlab("Event type") + ylab("Total number of injuries by event type") + theme(text = element_text(size = 10), axis.text.y = element_text(size=5)) + coord_flip()
+
+plot4 <- qplot(EVTYPE, sumHealth, data = arrange(by_evtype, desc(sumHealth))[1:10,]) + geom_bar(stat = "identity", fill = "orange", width=0.3) + xlab("Event type") + ylab("Sum of fatalities and injuries by event type") + theme(text = element_text(size = 10), axis.text.y = element_text(size=5)) + coord_flip()
+
+grid.arrange(plot1, plot2,plot3, plot4, nrow = 2, ncol=2)
+```
+
+The plots above show the top ten event types when cosidering the total amount of property and crop damage, the total number of fatalities, the total number of injuries and finally, the total number of fatalities plus injuries.
+
+#### Economic Consequences
+The plots show that the event type with the by far largest economic consequences is flood, which in total since the 1950's has caused damages for 150000 mill. dollars.
+Other event types that have large economic consequences are huricane, tornado and storm.
+
+#### Population Health
+Tornados are by far the most dangerous event type both with respect to fatalities and injuries, tornados has killed and injured nearly 100000 people in the US since the 1950's.
+Excessive heat is also responsible for many fatalities.
+
+### Average Impact By Event Types
+```{r secondplot, fig.width=10}
+
+plot5 <- qplot(EVTYPE, meanDmg, data = arrange(by_evtype, desc(meanDmg))[1:10,]) + geom_bar(stat = "identity", fill = "blue", width=0.3)  + ylab("Average property and crop damage per event (mill. $)") + xlab("Event type") + theme( text = element_text(size = 10), axis.text.y = element_text(size=5)) + coord_flip()
+
+plot6 <- qplot(EVTYPE, meanFatal, data = arrange(by_evtype, desc(meanFatal))[1:10,]) + geom_bar(stat = "identity", fill = "red", width=0.3) + xlab("Event type") + ylab("Average number of fatalities per event") + theme( text = element_text(size = 10), axis.text.y = element_text(size=5)) + coord_flip()
+
+plot7 <- qplot(EVTYPE, meanInjuries, data = arrange(by_evtype, desc(meanInjuries))[1:10,]) + geom_bar(stat = "identity", fill = "yellow", width=0.3) + xlab("Event type") + ylab("Average number of injuries per event") + theme( text = element_text(size = 10), axis.text.y = element_text(size=5))  + coord_flip()
+
+plot8 <- qplot(EVTYPE, meanSumHealth, data = arrange(by_evtype, desc(meanSumHealth))[1:10,]) + geom_bar(stat = "identity", fill = "orange", width=0.3) + xlab("Event type") + ylab("Average sum of fatalities and injuries per event") + theme( text = element_text(size = 10), axis.text.y = element_text(size=5)) + coord_flip()
+
+grid.arrange(plot5, plot6, plot7, plot8, nrow = 2, ncol=2)
+```
+
+The figure above shows the average damage, fatalities and injuries.
+This tells us which event types have the gretest impact in a single occurence. However, one must be careful when concluding from these values, since some of the reported event types may consist of only a single event which had large impact.
+
+###Most Common Event Types
+
+It may also be interesting to see which event types occures often. The table below shows the frequence of the most common (i.e., most frequent) event types:
+```{r kable, results='asis', warning=FALSE, message=FALSE}
+t <- arrange(by_evtype, desc(count))
+kable(t[1:20,c("EVTYPE", "count")], format = "markdown")
+```
+
+### Impact of Tornados and Floods Over Time
+```{r plotYear, fig.width=10}
+
+#plotting by year
+plota <- qplot(year, totalDamage, data = by_year) + geom_line(aes(group = EVTYPE, colour = EVTYPE)) + coord_cartesian(ylim = c(0, 20000)) + ylab("Property and crop damage (mill. $)") + theme( text = element_text(size = 8))
+
+plotb <- qplot(year, fatalities, data = by_year) + geom_line(aes(group = EVTYPE, colour = EVTYPE)) + ylab("Number of fatalities") + theme( text = element_text(size = 8))
+
+plotc <- qplot(year, injuries, data = by_year) + geom_line(aes(group = EVTYPE, colour = EVTYPE)) + ylab("Number of injuries") + theme( text = element_text(size = 8))
+
+plotd <- qplot(year, sumHealth, data = by_year) + geom_line(aes(group = EVTYPE, colour = EVTYPE)) + ylab("Sum of fatalities and injuries") + theme( text = element_text(size = 8))
+
+grid.arrange(plota, plotb, plotc, plotd, nrow = 2, ncol=2)
+```
+
+The figure above shows the impact of tornados and flood over time, summing the numbers for each year. Notice that, while tornados have been reported since the 1950s, floods have not been reported before the 1990s.
+
+####Extreme outlier responsible for most of the flood damage
+Notice that for flood we have an extreme outlier with value:
+```{r}
+flood <- filter(by_year, EVTYPE =="FLOOD")
+max(flood$totalDamage)
+
+```
+
+That is, in one particular year (2006) there was a total reporting of damages for 116611.3 mill. dollars,
+which accounts for most of the grand total of flood damage:
+```{r}
+sum(flood$totalDamage)
+```
+
+****
+### Software environment used to produce this report
+
+```{r sessioninfo}
+sessionInfo()
+```
